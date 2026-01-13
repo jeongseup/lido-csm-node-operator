@@ -1,0 +1,21 @@
+[Unit]
+Description=MEV-Boost Service for {{ network | upper }}
+Wants=network-online.target
+After=network-online.target
+Documentation=https://docs.coincashew.com
+
+[Service]
+User={{ eth_node_user }}
+Group={{ eth_node_user }}
+Type=simple
+Restart=always
+RestartSec=5
+ExecStart={{ mevboost_bin_dir }}/mev-boost \
+    -{{ network }} \
+    -addr 127.0.0.1:{{ mev_boost_port }} \
+    -min-bid {{ min_bid }} \
+    -relay-check \
+    {% for url in mevboost_relayer_urls %}-relay {{ url }} {% endfor %}
+
+[Install]
+WantedBy=multi-user.target

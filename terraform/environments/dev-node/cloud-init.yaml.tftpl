@@ -1,0 +1,30 @@
+#cloud-config
+# This cloud-init script provisions a new user and secures the server.
+
+# 1. Create a new user as defined by the 'user_name' variable.
+# 2. Add the provided public SSH key to the new user's authorized_keys file.
+# 3. Grant the user passwordless sudo privileges for administrative tasks.
+# 4. Enhance security by disabling root login and password-based SSH authentication.
+
+users:
+  - name: ${user_name}
+    groups: sudo
+    shell: /bin/bash
+    sudo: ['ALL=(ALL) NOPASSWD:ALL']
+    ssh_authorized_keys:
+      - ${ssh_public_key}
+
+# Update package lists and upgrade all installed packages on first boot.
+package_update: true
+package_upgrade: true
+
+# Install useful security and utility packages.
+packages:
+  - fail2ban
+  - ufw
+
+# Apply security hardening to the SSH daemon configuration.
+runcmd:
+  - sed -i -e '/^PermitRootLogin/s/^.*$/PermitRootLogin no/' /etc/ssh/sshd_config
+  - sed -i -e '/^PasswordAuthentication/s/^.*$/PasswordAuthentication no/' /etc/ssh/sshd_config
+  - systemctl restart sshd

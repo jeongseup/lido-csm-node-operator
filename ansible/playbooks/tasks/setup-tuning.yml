@@ -1,0 +1,85 @@
+---
+# ============================================
+# ⚡ System Performance Tuning
+# ============================================
+# 이더리움 노드 운영을 위한 커널/네트워크/스토리지 최적화
+# 상세 설명: docs/SYSTEM_TUNING.md 참조
+
+# --- Kernel Package Hold ---
+- name: Gather installed package facts
+  ansible.builtin.package_facts:
+    manager: auto
+
+- name: Define list of potential kernel metapackages
+  ansible.builtin.set_fact:
+    kernel_metapackages_to_hold:
+      # Ubuntu 24.04 (Home Server)
+      - linux-image-generic
+      - linux-headers-generic
+      - linux-generic
+      # Ubuntu 24.04 (Hetzner)
+      - linux-image-virtual
+      - linux-headers-virtual
+
+- name: Hold all installed kernel metapackages
+  ansible.builtin.dpkg_selections:
+    name: '{{ item }}'
+    selection: hold
+  loop: '{{ kernel_metapackages_to_hold }}'
+  when: item in ansible_facts.packages
+
+# --- GRUB Tuning ---
+- name: Tune GRUB settings (Fast boot, Mitigations Off, NVMe/PCIe optimizations)
+  ansible.builtin.lineinfile:
+    path: /etc/default/grub
+    regexp: '^{{ item.key }}='
+    line: '{{ item.key }}="{{ item.value }}"'
+    state: present
+  loop:
+    - { key: 'GRUB_TIMEOUT', value: '2' }
+    - key: 'GRUB_CMDLINE_LINUX_DEFAULT'
+      # mitigations=off: CPU 취약점 완화 비활성화로 성능 향상
+      # nvme_core.default_ps_max_latency_us=0: NVMe 전원 관리 비활성화
+      # pcie_aspm=off: PCIe 전원 관리 비활성화로 NVMe 안정성 향상
+      value: 'quiet splash mitigations=off nvme_core.default_ps_max_latency_us=0 pcie_aspm=off'
+  notify: Update grub
+
+# --- Sysctl Tuning ---
+- name: Apply Kernel/Network/Memory tuning (sysctl)
+  ansible.builtin.sysctl:
+    name: '{{ item.key }}'
+    value: '{{ item.value }}'
+    state: present
+    reload: true
+  loop:
+    # [Storage] DRAM-less SSD 성능 저하 방지
+    - { key: 'vm.dirty_background_ratio', value: '5' }
+    - { key: 'vm.dirty_ratio', value: '15' }
+    - { key: 'vm.swappiness', value: '10' }
+    # [Network] P2P 연결 최적화
+    - { key: 'net.core.somaxconn', value: '65535' }
+    - { key: 'net.ipv4.tcp_max_syn_backlog', value: '8192' }
+    - { key: 'net.core.netdev_max_backlog', value: '5000' }
+    # [Memory] RocksDB mmap 지원
+    - { key: 'vm.max_map_count', value: '1048576' }
+
+# --- File Descriptor Limits ---
+- name: Configure file descriptor limits (/etc/security/limits.conf)
+  ansible.builtin.blockinfile:
+    path: /etc/security/limits.conf
+    marker: '# {mark} ANSIBLE MANAGED - Ethereum Node Tuning'
+    block: |
+      # Increase file descriptor limits for Ethereum nodes
+      * soft nofile 1048576
+      * hard nofile 1048576
+      root soft nofile 1048576
+      root hard nofile 1048576
+    create: true
+    mode: '0644'
+
+# --- SSD Maintenance ---
+- name: Enable fstrim timer for SSD
+  ansible.builtin.systemd_service:
+    name: fstrim.timer
+    enabled: true
+    state: started

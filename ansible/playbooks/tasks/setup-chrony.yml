@@ -1,0 +1,23 @@
+---
+# ============================================
+# ⏰ Chrony (Time Synchronization)
+# ============================================
+# 이더리움 노드에 필수인 정확한 시간 동기화 설정
+
+- name: Ensure ntp is removed (conflicts with chrony)
+  ansible.builtin.apt:
+    name: ntp
+    state: absent
+  when: ansible_os_family == "Debian"
+
+- name: Install chrony
+  ansible.builtin.apt:
+    name: chrony
+    state: present
+  when: ansible_os_family == "Debian"
+
+- name: Ensure chrony service is enabled and started
+  ansible.builtin.systemd_service:
+    name: chrony
+    state: started
+    enabled: true

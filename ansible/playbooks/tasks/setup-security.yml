@@ -1,0 +1,117 @@
+---
+# ============================================
+# 🔒 Security Configuration
+# ============================================
+# SSH 강화, UFW 방화벽, Fail2Ban, 자동 업데이트 설정
+
+# --- Unattended Upgrades ---
+- name: Configure Unattended Upgrades (Security only, no auto-reboot)
+  ansible.builtin.template:
+    src: ../templates/50unattended-upgrades.j2
+    dest: /etc/apt/apt.conf.d/50unattended-upgrades
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Validate Unattended Upgrades syntax
+  ansible.builtin.command: unattended-upgrade --dry-run
+  check_mode: false
+  changed_when: false
+
+# --- SSH Hardening ---
+- name: Harden SSH configuration (Disable password login)
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^{{ item.key }}'
+    line: '{{ item.key }} {{ item.value }}'
+    state: present
+    validate: /usr/sbin/sshd -t -f %s
+  loop:
+    - { key: 'PasswordAuthentication', value: 'no' }
+    - { key: 'PermitRootLogin', value: 'no' }
+  notify: Restart sshd
+
+# --- UFW Firewall (Home Server only) ---
+- name: Configure UFW (Home Server only)
+  when: cloud_provider == 'home'
+  block:
+    # UFW reset은 명시적으로 요청할 때만 실행 (--tags ufw_reset)
+    - name: Reset UFW to a clean state (only when explicitly requested)
+      ansible.builtin.command: ufw --force reset
+      changed_when: true
+      tags: ['never', 'ufw_reset']
+
+    - name: Configure UFW Default Policies
+      community.general.ufw:
+        policy: '{{ item.policy }}'
+        direction: '{{ item.direction }}'
+      loop:
+        - { policy: 'deny', direction: 'incoming' }
+        - { policy: 'allow', direction: 'outgoing' }
+
+    - name: Define SSH UFW rules
+      community.general.ufw:
+        rule: 'allow'
+        port: '{{ item.port }}'
+        src: '{{ item.src }}'
+        comment: '{{ item.comment }}'
+      loop:
+        - {
+            port: 'ssh',
+            src: '{{ internal_network_cidr | default("192.168.1.0/24") }}',
+            comment: 'Allow SSH for internal network',
+          }
+        - {
+            port: 'ssh',
+            src: '100.0.0.0/8',
+            comment: 'Allow SSH for tailscale network',
+          }
+
+    - name: Define Mainnet UFW rules
+      community.general.ufw:
+        rule: 'allow'
+        port: '{{ item.port }}'
+        proto: '{{ item.proto | default(omit) }}'
+        comment: '{{ item.comment }}'
+      loop:
+        - { port: '30303', comment: 'Allow EL P2P Mainnet (TCP/UDP)' }
+        - { port: '9000', comment: 'Allow CL P2P Mainnet (TCP/UDP)' }
+        - {
+            port: '9001',
+            proto: 'udp',
+            comment: 'Allow Lighthouse QUIC Mainnet (UDP only)',
+          }
+      when: "'mainnet' in _enabled_networks"
+
+    - name: Define Testnet UFW rules
+      community.general.ufw:
+        rule: 'allow'
+        port: '{{ item.port }}'
+        proto: '{{ item.proto | default(omit) }}'
+        comment: '{{ item.comment }}'
+      loop:
+        - { port: '30403', comment: 'Allow EL P2P Testnet (TCP/UDP)' }
+        - { port: '9100', comment: 'Allow CL P2P Testnet (TCP/UDP)' }
+        - {
+            port: '9101',
+            proto: 'udp',
+            comment: 'Allow Lighthouse QUIC Testnet (UDP only)',
+          }
+      when: "'testnet' in _enabled_networks"
+
+    - name: Ensure UFW is enabled
+      community.general.ufw:
+        state: enabled
+
+# --- Fail2Ban ---
+- name: Configure Fail2Ban (Create jail.local)
+  ansible.builtin.template:
+    src: ../templates/jail.local.j2
+    dest: /etc/fail2ban/jail.local
+  notify: Restart fail2ban
+
+- name: Enable and start Fail2Ban
+  ansible.builtin.systemd_service:
+    name: fail2ban
+    enabled: true
+    state: started

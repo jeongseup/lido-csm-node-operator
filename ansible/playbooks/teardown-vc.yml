@@ -1,0 +1,244 @@
+---
+# ============================================
+# 🗑️ VC Teardown Playbook
+# ============================================
+# Validator Client 리소스를 정리합니다.
+# - Phase 1: VC 유저로 workspace 확인
+# - Phase 2: 서버(root)로 서비스/데이터/유저 삭제
+#
+# 사용법:
+#   ansible-playbook playbooks/teardown-vc.yml \
+#     -e "target_vc=p-home-bucheon-vc-ethereum-testnet" \
+#     -e "server_host=p-home-bucheon-server-root" \
+#     -e "delete_data=true" \
+#     -e "delete_user=true"
+#
+# 필수 변수:
+#   - target_vc: 정리할 VC 호스트 (인벤토리에 정의된 호스트)
+#   - server_host: 서버 호스트 (root 접속용, 유저 삭제 시 필요)
+#
+# 선택 변수:
+#   - delete_data: 데이터 디렉토리 삭제 여부 (default: false)
+#   - delete_user: 유저 삭제 여부 (default: false)
+# ============================================
+
+# --- Phase 0: Variable Validation ---
+- name: 'Phase 0: Validate Variables'
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    target_vc: '{{ target_vc | default("") }}'
+    server_host: '{{ server_host | default("") }}'
+  tasks:
+    - name: 'Assert target_vc is provided'
+      ansible.builtin.assert:
+        that:
+          - target_vc | length > 0
+        fail_msg: |
+          ❌ Required variable 'target_vc' not provided!
+          Usage: ansible-playbook teardown-vc.yml -e "target_vc=p-home-bucheon-vc-ethereum-testnet"
+        success_msg: '✅ Target VC: {{ target_vc }}'
+
+    - name: 'Assert server_host is provided'
+      ansible.builtin.assert:
+        that:
+          - server_host | length > 0
+        fail_msg: |
+          ❌ Required variable 'server_host' not provided!
+          Usage: -e "server_host=p-home-bucheon-server-root"
+        success_msg: '✅ Server Host: {{ server_host }}'
+
+    - name: 'Display VC host variables'
+      ansible.builtin.debug:
+        msg:
+          - 'Target VC: {{ target_vc }}'
+          - 'Server Host: {{ server_host }}'
+          - 'Network: {{ hostvars[target_vc]["network"] }}'
+          - 'Data Dir: {{ hostvars[target_vc]["eth_data_dir"] }}'
+
+# --- Phase 1: VC 유저로 Workspace 확인 ---
+- name: 'Phase 1: Cleanup VC Workspace (as VC user)'
+  hosts: '{{ target_vc }}'
+  gather_facts: true
+  tags:
+    - phase1
+    - cleanup
+  vars:
+    # 호스트 변수에서 가져오기
+    vc_network: '{{ network }}'
+    vc_data_dir: '{{ eth_data_dir }}'
+    network_type: "{{ 'testnet' if vc_network in ['hoodi', 'holesky', 'sepolia'] else 'mainnet' }}"
+    vc_user: "{{ 'testnet-vc' if network_type == 'testnet' else 'ethereum-vc' }}"
+    vc_service: 'vc_{{ vc_network }}'
+  tasks:
+    - name: '1.0 | ⚠️ 경고: VC Teardown 시작'
+      ansible.builtin.debug:
+        msg:
+          - '=========================================='
+          - '⚠️  VC TEARDOWN IN PROGRESS'
+          - '=========================================='
+          - 'Host: {{ inventory_hostname }}'
+          - 'Network: {{ vc_network }} ({{ network_type }})'
+          - 'VC User: {{ vc_user }}'
+          - 'Data Dir: {{ vc_data_dir }}'
+          - '=========================================='
+
+    - name: '1.1 | Get workspace directory'
+      ansible.builtin.set_fact:
+        workspace_dir: '{{ ansible_facts.user_dir }}/workspace'
+
+    - name: '1.2 | Check if workspace exists'
+      ansible.builtin.stat:
+        path: '{{ workspace_dir }}'
+      register: workspace_stat
+
+    - name: '1.3 | List workspace contents (for logging)'
+      ansible.builtin.find:
+        paths: '{{ workspace_dir }}'
+        file_type: any
+      register: workspace_contents
+      when: workspace_stat.stat.exists
+
+    - name: '1.4 | 📝 Phase 1 완료 메시지'
+      ansible.builtin.debug:
+        msg:
+          - '✅ Phase 1 Complete: Workspace checked'
+          - 'Workspace exists: {{ workspace_stat.stat.exists }}'
+          - 'Items in workspace: {{ workspace_contents.files | default([]) | length }}'
+
+# --- Phase 2: 서버(Root)로 서비스/데이터/유저 삭제 ---
+- name: 'Phase 2: Remove VC Service, Data, and User (as root on server)'
+  hosts: '{{ server_host }}'
+  gather_facts: false
+  become: true
+  tags:
+    - phase2
+    - remove
+  vars_files:
+    - vars/secrets.yml
+  vars:
+    delete_data: '{{ delete_data | default(false) | bool }}'
+    delete_user: '{{ delete_user | default(false) | bool }}'
+    # VC 호스트 변수에서 가져오기
+    vc_network: '{{ hostvars[target_vc]["network"] }}'
+    vc_data_dir: '{{ hostvars[target_vc]["eth_data_dir"] }}'
+    network_type: "{{ 'testnet' if vc_network in ['hoodi', 'holesky', 'sepolia'] else 'mainnet' }}"
+    vc_user: "{{ 'testnet-vc' if network_type == 'testnet' else 'ethereum-vc' }}"
+    vc_service: 'vc_{{ vc_network }}'
+  tasks:
+    # --- 2.1 서비스 정리 ---
+    - name: '2.0 | Check if VC service exists'
+      ansible.builtin.stat:
+        path: '/etc/systemd/system/{{ vc_service }}.service'
+      register: vc_service_stat
+
+    - name: '2.1 | Stop and disable VC service'
+      ansible.builtin.systemd_service:
+        name: '{{ vc_service }}'
+        state: stopped
+        enabled: false
+      when: vc_service_stat.stat.exists
+      ignore_errors: true
+
+    - name: '2.2 | Remove VC service file'
+      ansible.builtin.file:
+        path: '/etc/systemd/system/{{ vc_service }}.service'
+        state: absent
+      when: vc_service_stat.stat.exists
+
+    - name: '2.3 | Reload systemd daemon'
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+
+    # --- 2.2 데이터 디렉토리 삭제 ---
+    - name: '2.4 | Check if VC data directory exists'
+      ansible.builtin.stat:
+        path: '{{ vc_data_dir }}/vc'
+      register: vc_data_stat
+      when: delete_data | bool
+
+    - name: '2.4a | Find VC backup directories (vc.bak.*)'
+      ansible.builtin.find:
+        paths: '{{ vc_data_dir }}'
+        patterns: 'vc.bak.*'
+        file_type: directory
+      register: vc_bak_dirs
+      when: delete_data | bool
+
+    - name: '2.5 | ⚠️ Remove VC data directory'
+      ansible.builtin.file:
+        path: '{{ vc_data_dir }}/vc'
+        state: absent
+      when:
+        - delete_data | bool
+        - vc_data_stat.stat.exists | default(false)
+
+    - name: '2.5a | ⚠️ Remove VC backup directories'
+      ansible.builtin.file:
+        path: '{{ item.path }}'
+        state: absent
+      loop: '{{ vc_bak_dirs.files | default([]) }}'
+      when: delete_data | bool
+
+    - name: '2.5b | Skip data deletion message'
+      ansible.builtin.debug:
+        msg: '⏭️ Skipping data deletion (delete_data={{ delete_data }})'
+      when: not (delete_data | bool)
+
+    # --- 2.3 유저 삭제 ---
+    - name: '2.6 | Check if VC user exists'
+      ansible.builtin.getent:
+        database: passwd
+        key: '{{ vc_user }}'
+      register: vc_user_check
+      failed_when: false
+      when: delete_user | bool
+
+    - name: '2.6a | Kill all processes owned by VC user'
+      ansible.builtin.command:
+        cmd: 'pkill -9 -u {{ vc_user }}'
+      register: pkill_result
+      failed_when: false
+      changed_when: pkill_result.rc == 0
+      when:
+        - delete_user | bool
+        - vc_user_check.ansible_facts.getent_passwd[vc_user] is defined
+
+    - name: '2.6b | Wait for processes to terminate'
+      ansible.builtin.pause:
+        seconds: 2
+      when:
+        - delete_user | bool
+        - pkill_result.rc | default(1) == 0
+
+    - name: '2.7 | ⚠️ Remove VC user and home directory'
+      ansible.builtin.user:
+        name: '{{ vc_user }}'
+        state: absent
+        remove: true
+      when:
+        - delete_user | bool
+        - vc_user_check.ansible_facts.getent_passwd[vc_user] is defined
+
+    - name: '2.7a | Skip user deletion message'
+      ansible.builtin.debug:
+        msg: '⏭️ Skipping user deletion (delete_user={{ delete_user }})'
+      when: not (delete_user | bool)
+
+    # --- 완료 ---
+    - name: '2.8 | 📝 Teardown 완료 메시지'
+      ansible.builtin.debug:
+        msg:
+          - '=========================================='
+          - '✅ VC TEARDOWN COMPLETE'
+          - '=========================================='
+          - 'Host: {{ inventory_hostname }}'
+          - 'Service ({{ vc_service }}): {{ "removed" if vc_service_stat.stat.exists else "not found" }}'
+          - 'Data ({{ vc_data_dir }}/vc): {{ "removed" if delete_data and (vc_data_stat.stat.exists | default(false)) else "kept" }}'
+          - 'User ({{ vc_user }}): {{ "removed" if delete_user else "kept" }}'
+          - '=========================================='
+          - ''
+          - '📋 NEXT STEPS:'
+          - '1. Remove entry from inventory/vcs.yml'
+          - '=========================================='

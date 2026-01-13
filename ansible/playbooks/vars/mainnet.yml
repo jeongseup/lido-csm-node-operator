@@ -1,0 +1,43 @@
+# ============================================
+# 🔷 Mainnet Ethereum Service Configuration
+# ============================================
+# Usage: ansible-playbook setup-server.yml -e "network=mainnet"
+#
+# 이 파일은 메인넷 환경에서 사용할 서비스 유저와 디렉토리를 정의합니다.
+# ethereum-node: EL/CL 클라이언트 실행 유저
+# ethereum-vc: Validator 클라이언트 실행 유저 (키 보관)
+# ============================================
+
+# --- Service User Names ---
+eth_node_user: ethereum-node
+eth_vc_user: ethereum-vc
+
+# --- Data Directory Paths ---
+eth_base_dir: "{{ eth_data_dir | default('/data/ethereum') }}"
+eth_el_dir: '{{ eth_base_dir }}/el'
+eth_cl_dir: '{{ eth_base_dir }}/cl'
+eth_vc_dir: '{{ eth_base_dir }}/vc'
+
+# --- User Descriptions ---
+eth_node_user_comment: 'Runs EL (Nethermind) and CL (Lighthouse) clients - Mainnet'
+eth_vc_user_comment: 'Runs Validator client (holds keys) - Mainnet'
+
+# --- Service Ports (Mainnet) ---
+# Execution Layer (Nethermind)
+el_discovery_port: 30303
+el_p2p_port: 30303
+el_rpc_port: 8545
+el_metrics_port: 6060
+el_engine_port: 8551
+
+# Consensus Layer (Lighthouse)
+cl_p2p_port: 9000
+cl_quic_port: 9001
+cl_http_port: 5052
+cl_metrics_port: 8008
+
+# MEV-Boost
+mev_boost_port: 18550
+
+# Validator Client
+vc_metrics_port: 8009

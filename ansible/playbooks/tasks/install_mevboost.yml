@@ -1,0 +1,69 @@
+---
+# tasks/install_mevboost.yml
+
+- name: Find latest MEV Boost release URL
+  ansible.builtin.uri:
+    url: 'https://api.github.com/repos/flashbots/mev-boost/releases/tags/v{{ mev_version }}'
+    return_content: true
+  register: mevboost_release_info
+
+- name: Set mevboost_binary_url fact
+  ansible.builtin.set_fact:
+    mevboost_version_dir: '{{ ansible_facts.user_dir }}/workspace/bin/mevboost-{{ mev_version }}'
+    mevboost_binary_url: "{{
+      mevboost_release_info.json.assets |
+      selectattr('name', 'contains', 'linux_amd64.tar.gz') |
+      map(attribute='browser_download_url') |
+      first }}"
+
+- name: Debug Show MEV boost download URL
+  ansible.builtin.debug:
+    msg: 'Downloading MEV Boost from: {{ mevboost_binary_url }}'
+
+- name: Ensure MEV Boost bin directory exists
+  ansible.builtin.file:
+    path: '{{ ansible_facts.user_dir }}/workspace/bin'
+    state: directory
+    mode: '0755'
+
+- name: Ensure MEV Boost version directory exists
+  ansible.builtin.file:
+    path: '{{ mevboost_version_dir }}'
+    state: directory
+    mode: '0755'
+
+- name: Download and extract binary
+  ansible.builtin.unarchive:
+    src: '{{ mevboost_binary_url }}'
+    dest: '{{ mevboost_version_dir }}'
+    remote_src: true
+    mode: '0755'
+    creates: '{{ mevboost_version_dir }}/mev-boost'
+
+- name: Symlink MEV Boost current version
+  ansible.builtin.file:
+    src: '{{ mevboost_version_dir }}'
+    dest: '{{ ansible_facts.user_dir }}/workspace/bin/mevboost'
+    state: link
+    force: true
+  notify: Restart MEV-Boost service
+
+# --- 2. Systemd 서비스 설정 ---
+- name: Create MEV Boost systemd service file for CL
+  ansible.builtin.template:
+    src: '{{ mevboost_template_source }}'
+    dest: /etc/systemd/system/mevboost_{{ network }}.service
+    mode: '0644'
+  notify: Reload systemd
+  become: true
+
+- name: Create manage script file for the service
+  vars:
+    # template source file
+    cmd_template_source: '../templates/cmd.sh.j2'
+    # template variables
+    service_name: 'mevboost_{{ network }}'
+  ansible.builtin.template:
+    src: '{{ cmd_template_source }}'
+    dest: '{{ ansible_facts.user_dir }}/workspace/cmd/{{ service_name }}.sh'
+    mode: '0755'

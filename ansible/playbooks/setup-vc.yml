@@ -1,0 +1,154 @@
+---
+- name: Playbook to set up Lido CSM Validator Client
+  hosts: ethereum_vcs
+  vars:
+    # workspace configuration
+    custom_prompt_name: '{{ inventory_hostname }}'
+    user_workspace_base_dir: '~/workspace'
+    user_workspace_subdirs:
+      - cmd
+      - config
+      - env
+      - lib # workspace lib directory
+      - logs
+      - bin
+      - bin/lighthouse
+      - validator_data
+      - validator_keys
+    # network_type 감지: hoodi, holesky, sepolia → testnet, 그 외 → mainnet
+    network_type: "{{ 'testnet' if network in ['hoodi', 'holesky', 'sepolia'] else 'mainnet' }}"
+  pre_tasks:
+    - name: Load network-specific variables (mainnet/testnet)
+      ansible.builtin.include_vars:
+        file: 'vars/{{ network_type }}.yml'
+
+    # Set remote_user dynamically after loading network-specific vars
+    - name: Set remote user for VC operations
+      ansible.builtin.set_fact:
+        ansible_user: '{{ eth_vc_user }}'
+
+    - name: Display VC configuration
+      ansible.builtin.debug:
+        msg:
+          - 'network: {{ network }}'
+          - 'network_type: {{ network_type }}'
+          - 'eth_vc_user: {{ eth_vc_user }}'
+          - 'vc_data_dir: {{ eth_vc_dir }}'
+          - 'vc_metrics_port: {{ vc_metrics_port }}'
+  tasks:
+    - name: 🗂️ Create workspace directories
+      ansible.builtin.file:
+        path: '{{ user_workspace_base_dir }}/{{ item }}'
+        state: directory
+        mode: '0755'
+      loop: '{{ user_workspace_subdirs }}'
+
+    - name: Set custom shell prompt in .profile
+      ansible.builtin.lineinfile:
+        path: '~/.profile'
+        # 기존 PS1 설정을 주석 처리하거나, 이 라인에 고유 마커를 추가하여 idempotent하게 관리
+        regexp: '^export PS1=.*# ANSIBLE_PROMPT_MARKER$' # 기존 Ansible 관리 프롬프트 라인 매칭
+        line: 'export PS1="\[\033[01;32m\]{{ custom_prompt_name }}\[\033[00m\]:\[\033[01;34m\]\\w\[\033[00m\]\\$ " # ANSIBLE_PROMPT_MARKER'
+        state: present
+        create: true
+        mode: '0644'
+        insertafter: EOF # 파일 끝에 추가 (regexp로 기존 라인 못 찾을 경우)
+        backup: true # .bashrc 파일 변경 전 백업
+
+    - name: Ensure all .sh scripts and sourced by .profile
+      ansible.builtin.blockinfile:
+        path: '~/.profile'
+        create: true
+        mode: '0644'
+        marker: '# {mark} ANSIBLE MANAGED BLOCK FOR WORKSPACE ENV SCRIPTS' # 고유한 마커 주석
+        block: |
+          if [ -d "{{ user_workspace_base_dir }}/env" ]; then
+            for env_file_to_source in "{{ user_workspace_base_dir }}/env"/*.env; do
+              if [ -f "$env_file_to_source" ] && [ -r "$env_file_to_source" ]; then
+                . "$env_file_to_source"  # 각 .env 파일을 source
+              fi
+            done
+            unset env_file_to_source
+          fi
+
+    # --- 2. Lighthouse 바이너리 다운로드 및 설치 ---
+    - name: Find latest Lighthouse release URL
+      ansible.builtin.uri:
+        url: 'https://api.github.com/repos/sigp/lighthouse/releases/latest'
+        return_content: true
+      register: lighthouse_release_info
+
+    - name: Set binaries_url fact (linux-x64.zip)
+      ansible.builtin.set_fact:
+        vc_binary_url: "{{
+          lighthouse_release_info.json.assets |
+          selectattr('name', 'contains', 'x86_64-unknown-linux-gnu.tar.gz') |
+          map(attribute='browser_download_url') |
+          first }}"
+
+    - name: Set version fact
+      ansible.builtin.set_fact:
+        vc_version: '{{ lighthouse_release_info.json.tag_name }}'
+
+    - name: Debug Show Lighthouse download URL
+      ansible.builtin.debug:
+        msg: 'Downloading Lighthouse from: {{ vc_binary_url }} (for version {{ vc_version }})'
+
+    - name: Download and extract Lighthouse
+      ansible.builtin.unarchive:
+        src: '{{ vc_binary_url }}'
+        dest: '/home/{{ eth_vc_user }}/workspace/bin/lighthouse'
+        remote_src: true
+        mode: '0755'
+        creates: '/home/{{ eth_vc_user }}/workspace/bin/lighthouse/lighthouse-{{ vc_version }}'
+
+    - name: Create Validator Client systemd service file
+      vars:
+        # template source file
+        vc_template_source: '../templates/vc.service.j2'
+        # computed variables for template rendering
+        vc_network: '{{ network }}'
+        vc_graffiti: '{{ graffiti }}'
+        vc_user: '{{ eth_vc_user }}'
+        vc_workspace_lib_dir: '/home/{{ eth_vc_user }}/workspace/lib'
+        vc_bin_dir: '/home/{{ eth_vc_user }}/workspace/bin/lighthouse'
+        vc_data_dir: '{{ eth_vc_dir }}'
+        vc_metrics_port_value: '{{ vc_metrics_port }}'
+        vc_beacon_node_url: '{{ beacon_node_url }}'
+        vc_fee_recipient_address: '{{ fee_recipient_address }}'
+        service_name: 'vc_{{ network }}'
+      ansible.builtin.template:
+        src: '{{ vc_template_source }}'
+        dest: '/etc/systemd/system/vc_{{ network }}.service'
+        mode: '0644'
+      notify: Reload systemd
+      become: true
+
+    - name: Create manage script file for the service
+      vars:
+        # template source file
+        cmd_template_source: '../templates/cmd.sh.j2'
+        # template variables
+        service_name: 'vc_{{ network }}'
+      ansible.builtin.template:
+        src: '{{ cmd_template_source }}'
+        dest: '/home/{{ eth_vc_user }}/workspace/cmd/vc_{{ network }}.sh'
+        mode: '0755'
+
+    - name: Create import_new_keys.sh from template
+      vars:
+        # template source file
+        import_keys_template_source: 'templates/import_new_keys.sh.j2'
+        # template variables
+        vc_lighthouse_bin: '/home/{{ eth_vc_user }}/workspace/bin/lighthouse/lighthouse'
+      ansible.builtin.template:
+        src: '{{ import_keys_template_source }}'
+        dest: '/home/{{ eth_vc_user }}/workspace/cmd/import_new_keys.sh'
+        mode: '0755'
+      tags: import-keys
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+      become: true

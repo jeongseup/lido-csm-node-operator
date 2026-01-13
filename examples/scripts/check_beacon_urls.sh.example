@@ -1,0 +1,17 @@
+#!/bin/bash
+#
+
+END_POINT=https://jeongseup-home-server.tail54ff54.ts.net/beacon
+
+
+echo "1. CL check: " && curl ${END_POINT}/eth/v1/node/syncing
+echo ""
+
+echo "2. CL health " && curl -i ${END_POINT}/eth/v1/node/health
+
+END_POINT=https://p-home-bucheon-server-root.tail54ff54.ts.net
+
+echo "1. CL check: " && curl ${END_POINT}/eth/v1/node/syncing
+echo ""
+
+echo "2. CL health " && curl -i ${END_POINT}/eth/v1/node/health

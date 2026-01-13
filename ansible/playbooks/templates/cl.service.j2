@@ -1,0 +1,41 @@
+[Unit]
+Description=Lighthouse Consensus Layer Client service for {{ network }}
+Wants=network-online.target
+After=network-online.target
+Documentation=https://docs.coincashew.com
+
+[Service]
+Type=simple
+User={{ eth_node_user }}
+Group={{ eth_node_user }}
+Restart=always
+RestartSec=3
+KillSignal=SIGINT
+TimeoutStopSec=900
+LimitNOFILE=1048576
+
+WorkingDirectory={{ workspace_lib_dir }}
+ExecStart={{ cl_bin_dir }}/lighthouse bn \
+  --network={{ network }} \
+  --datadir={{ cl_datadir }} \
+  --logfile-max-size=20 \
+  --logfile-max-number=10 \
+  --log-color=false \
+  --gui \
+  --port={{ cl_p2p_port }} \
+  --quic-port={{ cl_quic_port }} \
+  --target-peers=100 \
+  --http-port={{ cl_http_port }} \
+  --staking \
+  --validator-monitor-auto \
+  --checkpoint-sync-url={{ checkpoint_sync_url }} \
+  --execution-endpoint=http://127.0.0.1:{{ el_engine_port }} \
+  --metrics \
+  --metrics-address=127.0.0.1 \
+  --metrics-port={{ cl_metrics_port }} \
+  --execution-jwt {{ jwt_secret_path }} \
+  --builder http://127.0.0.1:{{ mev_boost_port }}
+
+
+[Install]
+WantedBy=multi-user.target

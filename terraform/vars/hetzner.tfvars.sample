@@ -1,0 +1,7 @@
+# terraform/vars/hetzner.tfvars.sample
+
+# Generate at: https://console.hetzner.cloud/ -> Security -> API Tokens
+hcloud_token = "YOUR_HETZNER_API_TOKEN"
+
+# This name will be used to create the SSH key in your Hetzner project
+hcloud_ssh_key_name = "dev-node-ssh-key"

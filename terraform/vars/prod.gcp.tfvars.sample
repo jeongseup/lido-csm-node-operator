@@ -1,0 +1,24 @@
+# terraform/vars/prod.gcp.tfvars.sample
+
+# ==============================================================================
+# GCP Project and Region Settings
+# ==============================================================================
+gcp_project_id = "your-gcp-project-id"
+gcp_region     = "asia-northeast3" # e.g., Seoul
+gcp_zone       = "asia-northeast3-a"
+
+# ==============================================================================
+# Resource Naming and Configuration
+# ==============================================================================
+# Used for naming VPC, Subnet, Firewall rules, etc. to distinguish environments.
+env_prefix = "prod-vc"
+
+# The IP CIDR range for the subnet.
+ip_cidr_range = "10.0.0.0/24"
+
+# ==============================================================================
+# Instance Settings
+# ==============================================================================
+# GCP machine type for the validator client.
+# e.g., "e2-micro", "e2-small", "e2-medium"
+machine_type = "e2-micro"

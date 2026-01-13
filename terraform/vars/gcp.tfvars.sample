@@ -1,0 +1,4 @@
+# terraform/vars/gcp.tfvars.sample
+
+# Your GCP Project ID
+gcp_project_id = "your-gcp-project-id"

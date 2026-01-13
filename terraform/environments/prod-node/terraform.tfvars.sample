@@ -1,0 +1,30 @@
+# Hetzner Cloud API Token
+# Generate at: https://console.hetzner.cloud/ → Security → API Tokens → Generate API Token
+hcloud_token = "YOUR_HETZNER_API_TOKEN"
+
+# SSH Key Name in Hetzner Console
+# This must match exactly with the key name in your Hetzner account
+# View at: https://console.hetzner.cloud/ → Security → SSH Keys
+hcloud_ssh_key_name = "your-ssh-key-name-in-hetzner-console"
+
+# Full SSH Public Key Content
+# Get with: cat ~/.ssh/id_rsa.pub
+# Or: cat ~/.ssh/id_ed25519.pub
+ssh_public_key = "ssh-rsa AAAA..."
+
+# Allowed IPv4 addresses for SSH and restricted access
+# Get your IP with: curl -4 ifconfig.me
+# You can specify multiple IPs: ["203.0.113.42", "198.51.100.0"]
+allowed_ipv4_addresses = ["YOUR_HOME_IP"]
+
+# Optional: Override defaults
+server_name       = "my-custom-server-name"
+server_type       = "cx43"  # Change to cx11, cx21, etc. as needed
+location          = "nbg1"  # nbg1, fsn1, or hel1
+user_name         = "admin"  # Username for SSH login
+
+# Optional: Slack webhook for cloud-init completion notifications
+# slack_webhook_url = "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+
+# Optional: Hetzner Cloud network firewall (recommended for production)
+# hetzner_firewall_enabled = true  # Default: true

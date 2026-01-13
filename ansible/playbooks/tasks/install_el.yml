@@ -1,0 +1,88 @@
+---
+# tasks/install_el.yml
+
+# --- 1. 종속성 패키지 설치 ---
+- name: 1.1 | Install EL dependencies
+  ansible.builtin.apt:
+    name:
+      - curl
+      - jq
+      - unzip
+      - libsnappy-dev
+      - libc6-dev
+      - ccze
+    state: present
+    update_cache: true
+  become: true
+
+# --- 2. Nethermind 바이너리 다운로드 및 설치 ---
+- name: 2.1 | Fetch Nethermind release metadata
+  ansible.builtin.uri:
+    url: 'https://api.github.com/repos/NethermindEth/nethermind/releases/tags/{{ el_version }}'
+    return_content: true
+    status_code: 200
+  register: release_info
+
+- name: 2.2 | Set Nethermind paths and asset URL
+  ansible.builtin.set_fact:
+    nethermind_version_dir: '{{ ansible_facts.user_dir }}/workspace/bin/nethermind-{{ el_version }}'
+    binaries_url: "{{ release_info.json.assets
+      | selectattr('name', 'search', 'linux-x64\\.zip$')
+      | map(attribute='browser_download_url')
+      | first }}"
+
+- name: 2.3 | Assert Nethermind asset exists
+  ansible.builtin.assert:
+    that:
+      - binaries_url is defined
+      - binaries_url | length > 0
+    fail_msg: 'Nethermind release {{ el_version }} does not provide a linux-x64 asset.'
+
+- name: 2.4 | Ensure Nethermind bin directory exists
+  ansible.builtin.file:
+    path: '{{ ansible_facts.user_dir }}/workspace/bin'
+    state: directory
+    mode: '0755'
+
+- name: 2.5 | Ensure Nethermind version directory exists
+  ansible.builtin.file:
+    path: '{{ nethermind_version_dir }}'
+    state: directory
+    mode: '0755'
+
+- name: 2.6 | Debug Show Nethermind download URL
+  ansible.builtin.debug:
+    msg: 'Downloading Nethermind from: {{ binaries_url }}'
+
+- name: 2.7 | Download and extract Nethermind
+  ansible.builtin.unarchive:
+    src: '{{ binaries_url }}'
+    dest: '{{ nethermind_version_dir }}'
+    remote_src: true
+    mode: '0755'
+    creates: '{{ nethermind_version_dir }}/Nethermind.Runner' # 멱등성
+
+- name: 2.8 | Symlink Nethermind current version
+  ansible.builtin.file:
+    src: '{{ nethermind_version_dir }}'
+    dest: '{{ ansible_facts.user_dir }}/workspace/bin/nethermind'
+    state: link
+    force: true
+  notify: Restart EL service
+
+# --- 3. Systemd 서비스 설정 ---
+- name: 3.1 | Create Ethereum systemd service file for EL
+  ansible.builtin.template:
+    src: '{{ el_template_source }}'
+    dest: '/etc/systemd/system/{{ service_name }}.service'
+    mode: '0644'
+  notify:
+    - Reload systemd
+    - Restart EL service
+  become: true
+
+- name: Create manage script file for the service
+  ansible.builtin.template:
+    src: '{{ cmd_template_source }}'
+    dest: '{{ ansible_facts.user_dir }}/workspace/cmd/{{ service_name }}.sh'
+    mode: '0755'

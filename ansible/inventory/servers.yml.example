@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/ansible/ansible-lint/main/src/ansiblelint/schemas/inventory.json
+# ============================================
+# Home Servers (Root) - System Configuration
+# ============================================
+# Used by: setup-server.yml
+#
+# NOTE: Replace placeholder values with your actual configuration.
+# Sensitive values (healthcheck_webhook_url) should be moved to vault.
+# ============================================
+all:
+  children:
+    home_servers:
+      hosts:
+        # Example: Home Server 1
+        my-home-server-1:
+          ansible_host: 100.64.0.1  # Tailscale IP
+          host_type: node
+          cloud_provider: home
+          data_lv_size: 100%FREE
+          # Reference vault variable for sensitive URL
+          healthcheck_webhook_url: "{{ vault_healthcheck_urls.server1 }}"
+          enabled_networks:
+            - mainnet
+            - testnet
+
+        # Example: Home Server 2
+        my-home-server-2:
+          ansible_host: 100.64.0.2  # Tailscale IP
+          host_type: node
+          cloud_provider: home
+          data_lv_size: 100%FREE
+          healthcheck_webhook_url: "{{ vault_healthcheck_urls.server2 }}"
+          enabled_networks:
+            - mainnet

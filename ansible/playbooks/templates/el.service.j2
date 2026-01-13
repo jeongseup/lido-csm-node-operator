@@ -1,0 +1,37 @@
+[Unit]
+Description=Nethermind Execution Layer Client for {{ network }}
+Wants=network-online.target
+After=network-online.target
+Documentation=https://docs.coincashew.com
+
+[Service]
+Type=simple
+User={{ eth_node_user }}
+Group={{ eth_node_user }}
+Restart=always
+RestartSec=3
+KillSignal=SIGINT
+TimeoutStopSec=900
+LimitNOFILE=1048576
+
+WorkingDirectory={{ workspace_lib_dir }}
+Environment="DOTNET_BUNDLE_EXTRACT_BASE_DIR={{ workspace_lib_dir }}"
+ExecStart={{ el_bin_dir }}/Nethermind.Runner \
+  --config={{ network }} \
+  --datadir="{{ el_data_dir }}" \
+  --JsonRpc.JwtSecretFile={{ jwt_secret_path}} \
+  --Network.DiscoveryPort={{ el_discovery_port }} \
+  --Network.P2PPort={{ el_p2p_port }} \
+  --Network.MaxActivePeers=50 \
+  --JsonRpc.Port={{ el_rpc_port }} \
+  --JsonRpc.EnginePort={{ el_engine_port }} \
+  --Metrics.Enabled=true \
+  --Metrics.ExposePort={{ el_metrics_port }} \
+  --Pruning.Mode=Hybrid \
+  --Pruning.FullPruningTrigger=VolumeFreeSpace \
+  --Pruning.FullPruningThresholdMb=300000 \
+  --Sync.AncientBodiesBarrier=15537394 \
+  --Sync.AncientReceiptsBarrier=15537394
+
+[Install]
+WantedBy=multi-user.target

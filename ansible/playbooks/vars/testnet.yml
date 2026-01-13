@@ -1,0 +1,46 @@
+# ============================================
+# 🔶 Testnet Ethereum Service Configuration
+# ============================================
+# Usage: ansible-playbook setup-server.yml -e "network=testnet"
+#
+# 이 파일은 테스트넷 환경에서 사용할 서비스 유저와 디렉토리를 정의합니다.
+# testnet-node: EL/CL 클라이언트 실행 유저 (테스트넷)
+# testnet-vc: Validator 클라이언트 실행 유저 (테스트넷)
+# ============================================
+
+# --- Service User Names ---
+# 메인넷과 분리하기 위해 'testnet-' prefix 사용
+eth_node_user: testnet-node
+eth_vc_user: testnet-vc
+
+# --- Data Directory Paths ---
+# 메인넷과 분리된 디렉토리 구조
+eth_base_dir: "{{ eth_data_dir | default('/data/testnet') }}"
+eth_el_dir: '{{ eth_base_dir }}/el'
+eth_cl_dir: '{{ eth_base_dir }}/cl'
+eth_vc_dir: '{{ eth_base_dir }}/vc'
+
+# --- User Descriptions ---
+eth_node_user_comment: 'Runs EL (Nethermind) and CL (Lighthouse) clients - Testnet'
+eth_vc_user_comment: 'Runs Validator client (holds keys) - Testnet'
+
+# --- Service Ports (Testnet) ---
+# Mainnet 포트 + 100 으로 충돌 방지
+# Execution Layer (Nethermind)
+el_discovery_port: 30403
+el_p2p_port: 30403
+el_rpc_port: 8645
+el_metrics_port: 6160
+el_engine_port: 8651
+
+# Consensus Layer (Lighthouse)
+cl_p2p_port: 9100
+cl_quic_port: 9101
+cl_http_port: 5152
+cl_metrics_port: 8108
+
+# MEV-Boost
+mev_boost_port: 18650
+
+# Validator Client
+vc_metrics_port: 8109

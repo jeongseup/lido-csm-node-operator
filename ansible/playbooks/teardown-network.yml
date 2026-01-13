@@ -1,0 +1,261 @@
+---
+# ============================================
+# 🗑️ Network Resource Teardown Playbook
+# ============================================
+# 특정 네트워크의 모든 리소스를 정리합니다.
+# - Systemd 서비스 중지 및 삭제
+# - 데이터 디렉토리 삭제 (선택적)
+# - 유저 삭제 (선택적)
+#
+# 사용법:
+#   # Testnet 리소스 정리 (bucheon 서버)
+#   ansible-playbook playbooks/teardown-network.yml \
+#     -e "target_host=p-home-bucheon-server-root" \
+#     -e "network_type=testnet" \
+#     -e "network=hoodi" \
+#     -e "data_dir=/data/testnet" \
+#     -e "delete_data=true" \
+#     -e "delete_users=true"
+#
+# 필수 변수:
+#   - target_host: 정리할 서버 호스트
+#   - network_type: 정리할 네트워크 타입 (testnet 또는 mainnet)
+#   - network: 실제 네트워크명 (hoodi, mainnet 등)
+#   - data_dir: 데이터 디렉토리 경로 (delete_data=true 시 필수)
+#
+# 선택 변수:
+#   - delete_data: 데이터 디렉토리 삭제 여부 (default: false)
+#   - delete_users: 유저 삭제 여부 (default: false)
+# ============================================
+
+- name: 'Teardown Network Resources'
+  hosts: '{{ target_host }}'
+  become: true
+  gather_facts: true
+  vars:
+    # 기본값 설정
+    network_type: '{{ network_type | default("testnet") }}'
+    network: '{{ network | default("") }}'
+    delete_data: '{{ delete_data | default(false) | bool }}'
+    delete_users: '{{ delete_users | default(false) | bool }}'
+    data_dir: '{{ data_dir | default("") }}'
+
+    # 네트워크 타입에 따른 유저명
+    node_user: "{{ 'testnet-node' if network_type == 'testnet' else 'ethereum-node' }}"
+    vc_user: "{{ 'testnet-vc' if network_type == 'testnet' else 'ethereum-vc' }}"
+
+    # 서비스 이름
+    el_service: 'el_{{ network }}'
+    cl_service: 'cl_{{ network }}'
+    mevboost_service: 'mevboost_{{ network }}'
+    vc_service: 'vc_{{ network }}'
+
+  pre_tasks:
+    - name: 'Assert required variables are provided'
+      ansible.builtin.assert:
+        that:
+          - network | length > 0
+        fail_msg: |
+          ❌ Required variable 'network' not provided!
+          Usage: -e "network=hoodi" (or mainnet)
+        success_msg: '✅ Network: {{ network }}'
+
+    - name: 'Assert data_dir is provided when delete_data is true'
+      ansible.builtin.assert:
+        that:
+          - data_dir | length > 0
+        fail_msg: |
+          ❌ 'data_dir' is required when delete_data=true!
+          Usage: -e "data_dir=/data/testnet"
+        success_msg: '✅ Data directory: {{ data_dir }}'
+      when: delete_data | bool
+
+  tasks:
+    # --- 0. 확인 메시지 ---
+    - name: '0.0 | ⚠️ 경고: 삭제 작업 시작'
+      ansible.builtin.debug:
+        msg:
+          - '=========================================='
+          - '⚠️  TEARDOWN NETWORK RESOURCES'
+          - '=========================================='
+          - 'Target Host: {{ inventory_hostname }}'
+          - 'Network Type: {{ network_type }}'
+          - 'Network: {{ network }}'
+          - 'Delete Data: {{ delete_data }}'
+          - 'Delete Users: {{ delete_users }}'
+          - '=========================================='
+          - 'Services to stop:'
+          - '  - {{ el_service }}'
+          - '  - {{ cl_service }}'
+          - '  - {{ mevboost_service }}'
+          - '  - {{ vc_service }}'
+          - '=========================================='
+
+    # --- 1. VC 서비스 정리 ---
+    - name: '1.0 | Check if VC service exists'
+      ansible.builtin.stat:
+        path: '/etc/systemd/system/{{ vc_service }}.service'
+      register: vc_service_stat
+
+    - name: '1.1 | Stop and disable VC service'
+      ansible.builtin.systemd_service:
+        name: '{{ vc_service }}'
+        state: stopped
+        enabled: false
+      when: vc_service_stat.stat.exists
+      ignore_errors: true
+
+    - name: '1.2 | Remove VC service file'
+      ansible.builtin.file:
+        path: '/etc/systemd/system/{{ vc_service }}.service'
+        state: absent
+      when: vc_service_stat.stat.exists
+
+    # --- 2. MEV-Boost 서비스 정리 ---
+    - name: '2.0 | Check if MEV-Boost service exists'
+      ansible.builtin.stat:
+        path: '/etc/systemd/system/{{ mevboost_service }}.service'
+      register: mevboost_service_stat
+
+    - name: '2.1 | Stop and disable MEV-Boost service'
+      ansible.builtin.systemd_service:
+        name: '{{ mevboost_service }}'
+        state: stopped
+        enabled: false
+      when: mevboost_service_stat.stat.exists
+      ignore_errors: true
+
+    - name: '2.2 | Remove MEV-Boost service file'
+      ansible.builtin.file:
+        path: '/etc/systemd/system/{{ mevboost_service }}.service'
+        state: absent
+      when: mevboost_service_stat.stat.exists
+
+    # --- 3. CL 서비스 정리 ---
+    - name: '3.0 | Check if CL service exists'
+      ansible.builtin.stat:
+        path: '/etc/systemd/system/{{ cl_service }}.service'
+      register: cl_service_stat
+
+    - name: '3.1 | Stop and disable CL service'
+      ansible.builtin.systemd_service:
+        name: '{{ cl_service }}'
+        state: stopped
+        enabled: false
+      when: cl_service_stat.stat.exists
+      ignore_errors: true
+
+    - name: '3.2 | Remove CL service file'
+      ansible.builtin.file:
+        path: '/etc/systemd/system/{{ cl_service }}.service'
+        state: absent
+      when: cl_service_stat.stat.exists
+
+    # --- 4. EL 서비스 정리 ---
+    - name: '4.0 | Check if EL service exists'
+      ansible.builtin.stat:
+        path: '/etc/systemd/system/{{ el_service }}.service'
+      register: el_service_stat
+
+    - name: '4.1 | Stop and disable EL service'
+      ansible.builtin.systemd_service:
+        name: '{{ el_service }}'
+        state: stopped
+        enabled: false
+      when: el_service_stat.stat.exists
+      ignore_errors: true
+
+    - name: '4.2 | Remove EL service file'
+      ansible.builtin.file:
+        path: '/etc/systemd/system/{{ el_service }}.service'
+        state: absent
+      when: el_service_stat.stat.exists
+
+    # --- 5. Systemd 리로드 ---
+    - name: '5.0 | Reload systemd daemon'
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+
+    # --- 6. 데이터 디렉토리 삭제 (선택적) ---
+    - name: '6.0 | Check if data directory exists'
+      ansible.builtin.stat:
+        path: '{{ data_dir }}'
+      register: data_dir_stat
+      when: delete_data
+
+    - name: '6.1 | ⚠️ Remove data directory'
+      ansible.builtin.file:
+        path: '{{ data_dir }}'
+        state: absent
+      when:
+        - delete_data
+        - data_dir_stat.stat.exists | default(false)
+
+    - name: '6.1a | Skip data deletion message'
+      ansible.builtin.debug:
+        msg: '⏭️ Skipping data deletion (delete_data={{ delete_data }})'
+      when: not delete_data
+
+    # --- 7. 유저 삭제 (선택적) ---
+    - name: '7.0 | Check if node user exists'
+      ansible.builtin.getent:
+        database: passwd
+        key: '{{ node_user }}'
+      register: node_user_check
+      failed_when: false
+      when: delete_users
+
+    - name: '7.1 | Remove node user and home directory'
+      ansible.builtin.user:
+        name: '{{ node_user }}'
+        state: absent
+        remove: true
+      when:
+        - delete_users
+        - node_user_check.ansible_facts.getent_passwd[node_user] is defined
+
+    - name: '7.2 | Check if VC user exists'
+      ansible.builtin.getent:
+        database: passwd
+        key: '{{ vc_user }}'
+      register: vc_user_check
+      failed_when: false
+      when: delete_users
+
+    - name: '7.3 | Remove VC user and home directory'
+      ansible.builtin.user:
+        name: '{{ vc_user }}'
+        state: absent
+        remove: true
+      when:
+        - delete_users
+        - vc_user_check.ansible_facts.getent_passwd[vc_user] is defined
+
+    - name: '7.3a | Skip user deletion message'
+      ansible.builtin.debug:
+        msg: '⏭️ Skipping user deletion (delete_users={{ delete_users }})'
+      when: not delete_users
+
+    # --- 8. 완료 메시지 ---
+    - name: '8.0 | 📝 Teardown 완료 메시지'
+      ansible.builtin.debug:
+        msg:
+          - '=========================================='
+          - '✅ TEARDOWN COMPLETE on {{ inventory_hostname }}'
+          - '=========================================='
+          - 'Removed Services:'
+          - '  - {{ el_service }}: {{ "removed" if el_service_stat.stat.exists else "not found" }}'
+          - '  - {{ cl_service }}: {{ "removed" if cl_service_stat.stat.exists else "not found" }}'
+          - '  - {{ mevboost_service }}: {{ "removed" if mevboost_service_stat.stat.exists else "not found" }}'
+          - '  - {{ vc_service }}: {{ "removed" if vc_service_stat.stat.exists else "not found" }}'
+          - ''
+          - 'Data Directory ({{ data_dir }}): {{ "removed" if delete_data and (data_dir_stat.stat.exists | default(false)) else "kept" }}'
+          - 'Users: {{ "removed" if delete_users else "kept" }}'
+          - '=========================================='
+          - ''
+          - '📋 NEXT STEPS:'
+          - '1. Remove host from inventory files:'
+          - '   - nodes.yml: Remove {{ network_type }} node entry'
+          - '   - vcs.yml: Remove {{ network_type }} vc entry'
+          - '   - servers.yml: Remove {{ network_type }} from enabled_networks'
+          - '=========================================='

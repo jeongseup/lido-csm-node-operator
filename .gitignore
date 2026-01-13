@@ -1,0 +1,74 @@
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfvars
+!terraform.tfvars.example
+.terraform/
+.terraform.lock.hcl
+crash.log
+crash.*.log
+
+# Sensitive files
+terraform.tfvars
+*.pem
+*.key
+secrets/
+ansible/vars/secrets.yml
+ansible/group_vars/all/vault.yml
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Backup files
+*.bak
+*.backup
+
+# Vault
+.vault_pass
+.vault_pass.txt
+.vault_pass*
+
+# Ansible
+# Ignore Ansible temporary files
+.ansible
+facts_cache
+*.retry
+secret_files/
+
+# Ansible Inventory - Real files (keep .example versions)
+# Protect all yml files in inventory by default
+ansible/inventory/*.yml
+ansible/inventory/*.yaml
+!ansible/inventory/*.example.yml
+!ansible/inventory/*.example.yaml
+!ansible/inventory/*.example
+
+# Ansible Secrets - Must be vaulted, never commit unencrypted
+ansible/playbooks/vars/secrets.yml
+!ansible/playbooks/vars/secrets.yml.example
+
+# Personal
+TODO
+.env
+
+# Migration backups (sensitive validator keys)
+ansible/.migration/
+archive/
+ansible/.keys/
+.keys/
+keys

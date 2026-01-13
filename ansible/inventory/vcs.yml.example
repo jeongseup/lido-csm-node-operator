@@ -1,0 +1,45 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/ansible/ansible-lint/main/src/ansiblelint/schemas/inventory.json
+# ============================================
+# Ethereum Validator Clients (VC)
+# ============================================
+# Used by: setup-vc.yml
+#
+# IMPORTANT: Sensitive values should reference vault variables:
+#   - graffiti: {{ vault_validator_graffiti }}
+#   - fee_recipient_address: {{ vault_fee_recipient_addresses.mainnet }}
+#   - beacon_node_url: {{ vault_beacon_node_urls.mainnet }}
+# ============================================
+all:
+  children:
+    ethereum_vcs:
+      hosts:
+        # ────────────────────────────────────────
+        # Mainnet VCs
+        # ────────────────────────────────────────
+        my-mainnet-vc-1:
+          ansible_host: 100.64.0.1  # Tailscale IP
+          network: mainnet
+          eth_data_dir: /data/ethereum
+          # Reference vault variables for sensitive data
+          graffiti: "{{ vault_validator_graffiti }}"
+          fee_recipient_address: "{{ vault_fee_recipient_addresses.mainnet }}"
+          beacon_node_url: "{{ vault_beacon_node_urls.mainnet }}"
+
+        my-mainnet-vc-2:
+          ansible_host: 100.64.0.2  # Tailscale IP
+          network: mainnet
+          eth_data_dir: /data/ethereum
+          graffiti: "{{ vault_validator_graffiti }}"
+          fee_recipient_address: "{{ vault_fee_recipient_addresses.mainnet }}"
+          beacon_node_url: "{{ vault_beacon_node_urls.mainnet }}"
+
+        # ────────────────────────────────────────
+        # Testnet VCs (Hoodi)
+        # ────────────────────────────────────────
+        my-testnet-vc-1:
+          ansible_host: 100.64.0.1  # Tailscale IP
+          network: hoodi
+          eth_data_dir: /data/testnet
+          graffiti: "{{ vault_validator_graffiti }}"
+          fee_recipient_address: "{{ vault_fee_recipient_addresses.testnet }}"
+          beacon_node_url: "{{ vault_beacon_node_urls.testnet }}"

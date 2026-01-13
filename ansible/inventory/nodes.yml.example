@@ -1,0 +1,53 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/ansible/ansible-lint/main/src/ansiblelint/schemas/inventory.json
+# ============================================
+# Ethereum Nodes (EL/CL/MEV-Boost)
+# ============================================
+# Used by: setup-nodes.yml
+#
+# NOTE: MEV relay URLs are public information.
+# Update client versions as needed.
+# ============================================
+all:
+  children:
+    ethereum_nodes:
+      hosts:
+        # ────────────────────────────────────────
+        # Mainnet Nodes
+        # ────────────────────────────────────────
+        my-mainnet-node-1:
+          ansible_host: 100.64.0.1  # Tailscale IP
+          cl_version: '8.0.1'
+          el_version: '1.35.3'
+          mev_version: '1.10.1'
+          min_bid: '0'
+          network: mainnet
+          eth_data_dir: /data/ethereum
+          checkpoint_sync_url: https://sync.invis.tools
+          # MEV relay URLs - these are public, safe to commit
+          mevboost_relayer_urls:
+            - 'https://0xa1559ace749633b997cb3fdacffb890aeebdb0f5a3b6aaa7eeeaf1a38af0a8fe88b9e4b1f61f236d2e64d95733327a62@relay-filtered.ultrasound.money'
+            - 'https://0x8c4ed5e24fe5c6ae21018437bde147693f68cda427cd1122cf20819c30eda7ed74f72dece09bb313f2a1855595ab677d@global.titanrelay.xyz'
+            - 'https://0xa7ab7a996c8584251c8f925da3170bdfd6ebc75d50f5ddc4050a6fdc77f2a3b5fce2cc750d0865e05d7228af97d69561@agnostic-relay.net'
+            - 'https://0xa1559ace749633b997cb3fdacffb890aeebdb0f5a3b6aaa7eeeaf1a38af0a8fe88b9e4b1f61f236d2e64d95733327a62@relay.ultrasound.money'
+            - 'https://0xa15b52576bcbf1072f4a011c0f99f9fb6c66f3e1ff321f11f461d15e31b1cb359caa092c71bbded0bae5b5ea401aab7e@aestus.live'
+            - 'https://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@boost-relay.flashbots.net'
+            - 'https://0x8b5d2e73e2a3a55c6c87b8b6eb92e0149a125c852751db1422fa951e42a09b82c142c3ea98d0d9930b056a3bc9896b8f@bloxroute.max-profit.blxrbdn.com'
+            - 'https://0xb0b07cd0abef743db4260b0ed50619cf6ad4d82064cb4fbec9d3ec530f7c5e6793d9f286c4e082c0244ffb9f2658fe88@bloxroute.regulated.blxrbdn.com'
+
+        # ────────────────────────────────────────
+        # Testnet Nodes (Hoodi)
+        # ────────────────────────────────────────
+        my-testnet-node-1:
+          ansible_host: 100.64.0.1  # Tailscale IP
+          cl_version: '8.0.1'
+          el_version: '1.35.3'
+          mev_version: '1.10.1'
+          min_bid: '0'
+          network: hoodi
+          eth_data_dir: /data/testnet
+          checkpoint_sync_url: https://checkpoint-sync.hoodi.ethpandaops.io
+          mevboost_relayer_urls:
+            - 'https://0x98f0ef62f00780cf8eb06701a7d22725b9437d4768bb19b363e882ae87129945ec206ec2dc16933f31d983f8225772b6@hoodi.aestus.live'
+            - 'https://0xaa58208899c6105603b74396734a6263cc7d947f444f396a90f7b7d3e65d102aec7e5e5291b27e08d02c50a050825c2f@hoodi.titanrelay.xyz'
+            - 'https://0xb1559beef7b5ba3127485bbbb090362d9f497ba64e177ee2c8e7db74746306efad687f2cf8574e38d70067d40ef136dc@relay-hoodi.ultrasound.money'
+            - 'https://0xafa4c6985aa049fb79dd37010438cfebeb0f2bd42b115b89dd678dab0670c1de38da0c4e9138c9290a398ecd9a0b3110@boost-relay-hoodi.flashbots.net'

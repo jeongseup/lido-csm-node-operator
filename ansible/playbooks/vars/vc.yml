@@ -1,0 +1,35 @@
+# ============================================
+# 🔑 Validator Client Common Variables
+# ============================================
+# VC 관련 플레이북에서 공통으로 사용하는 변수들
+# migrate-vc-keys.yml 등에서 include_vars로 사용
+#
+# 필수 변수 (호출 전에 정의되어야 함):
+#   - target_host_name: 작업 대상 호스트 이름 (source_host 또는 target_host)
+# ============================================
+
+# --- Network Detection ---
+# 호스트의 인벤토리에서 network 변수를 가져옴
+vc_network: "{{ hostvars[target_host_name]['network'] }}"
+vc_network_type: "{{ 'testnet' if vc_network in ['hoodi', 'holesky', 'sepolia'] else 'mainnet' }}"
+
+# --- User Configuration ---
+# 테스트넷과 메인넷에 따라 다른 유저 사용
+vc_user: "{{ 'testnet-vc' if vc_network_type == 'testnet' else 'ethereum-vc' }}"
+vc_user_home: '/home/{{ vc_user }}'
+
+# --- Directory Paths ---
+# 인벤토리의 eth_data_dir을 기반으로 경로 설정
+vc_base_data_dir: "{{ hostvars[target_host_name]['eth_data_dir'] | default('/data/testnet' if vc_network_type == 'testnet' else '/data/ethereum') }}"
+vc_data_dir: '{{ vc_base_data_dir }}/vc'
+
+# --- Binary Paths ---
+vc_lighthouse_bin: '{{ vc_user_home }}/workspace/bin/lighthouse/lighthouse'
+
+# --- Migration Specific Directories ---
+vc_backup_dir: '{{ vc_user_home }}/vc_migration_backup'
+vc_import_dir: '{{ vc_user_home }}/vc_migration_import'
+vc_validator_keys_dir: '{{ vc_user_home }}/workspace/validator_keys'
+
+# --- Service Configuration ---
+vc_service_name: 'vc_{{ vc_network }}'

@@ -1,0 +1,21 @@
+#!/bin/bash
+# Import new validator keys to Lighthouse VC
+# Directory: ~/workspace/new-keys
+# Usage: ./import_new_keys.sh
+
+set -e
+
+NEW_KEYS_DIR=~/workspace/new_keys
+VALIDATOR_KEYS_DIR=~/workspace/validator_keys
+
+echo "🔑 Importing new validator keys..."
+{{ vc_lighthouse_bin }} --network {{ network }} --datadir {{ eth_vc_dir }} account validator import --directory ${NEW_KEYS_DIR} --password-file ${VALIDATOR_KEYS_DIR}/password.txt --reuse-password
+
+if [ $? -eq 0 ]; then
+    echo "✅ Import successful! Moving key files to ${VALIDATOR_KEYS_DIR}..."
+    mv ${NEW_KEYS_DIR}/keystore-*.json ${VALIDATOR_KEYS_DIR}/
+    echo "✅ Key files moved successfully"
+else
+    echo "❌ Import failed!"
+    exit 1
+fi

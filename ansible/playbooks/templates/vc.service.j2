@@ -1,0 +1,27 @@
+[Unit]
+Description=Lighthouse Validator Client service for {{ vc_network }}
+Wants=network-online.target
+After=network-online.target
+Documentation=https://docs.coincashew.com
+
+[Service]
+Type=simple
+User={{ vc_user }}
+Group={{ vc_user }}
+Restart=always
+RestartSec=3
+KillSignal=SIGINT
+TimeoutStopSec=900
+
+WorkingDirectory={{ vc_workspace_lib_dir }}
+ExecStart={{ vc_bin_dir }}/lighthouse vc \
+  --network={{ vc_network }} \
+  --datadir={{ vc_data_dir }} \
+  --metrics \
+  --metrics-port={{ vc_metrics_port_value }} \
+  --graffiti="{{ vc_graffiti }}" \
+  --beacon-nodes={{ vc_beacon_node_url if vc_beacon_node_url is string else vc_beacon_node_url | join(',') }} \
+  --suggested-fee-recipient={{ vc_fee_recipient_address }}
+
+[Install]
+WantedBy=multi-user.target

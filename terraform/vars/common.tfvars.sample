@@ -1,0 +1,7 @@
+# terraform/vars/common.tfvars.sample
+
+# Get with: cat ~/.ssh/id_rsa.pub (or your specific key)
+ssh_public_key = "ssh-rsa AAAA..."
+
+# Default ssh user for instances
+ssh_user = "devops"

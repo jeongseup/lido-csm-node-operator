@@ -1,0 +1,40 @@
+---
+# ============================================
+# 📦 Base Packages Installation
+# ============================================
+# 시스템 기본 패키지 설치 및 관리
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Perform system distribution upgrade
+  ansible.builtin.apt:
+    upgrade: dist
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name:
+      # 기본 유틸리티
+      - curl
+      - wget
+      - htop
+      - net-tools
+      - git
+      - jq
+      - ccze
+      # 밸리데이터 필수
+      - ufw
+      - fail2ban
+      - chrony
+      - unattended-upgrades
+    state: present
+
+- name: Autoremove unused packages
+  ansible.builtin.apt:
+    autoremove: true
+
+- name: Autoclean apt cache
+  ansible.builtin.command: apt-get autoclean -y
+  changed_when: false

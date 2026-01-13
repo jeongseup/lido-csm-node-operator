@@ -1,0 +1,11 @@
+// 기본 Ubuntu 24.04 설정에서 보안 관련 부분만 활성화합니다.
+Unattended-Upgrade::Allowed-Origins {
+        "${distro_id}:${distro_codename}-security";
+};
+
+// 커널 등 블랙리스트 패키지는 비워둡니다. (어차피 hold 처리함)
+Unattended-Upgrade::Package-Blacklist {
+};
+
+// [중요] 자동 재부팅 비활성화
+Unattended-Upgrade::Automatic-Reboot "false";

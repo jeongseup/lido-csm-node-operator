@@ -1,0 +1,17 @@
+---
+# ============================================
+# 🏥 Healthcheck Configuration
+# ============================================
+# healthcheck_webhook_url로 서버 상태 모니터링
+
+- name: Healthcheck | Ping on boot (@reboot)
+  ansible.builtin.cron:
+    name: 'Healthcheck - Ping on boot'
+    special_time: reboot
+    job: 'curl -fsS -m 10 --retry 5 -o /dev/null {{ healthcheck_webhook_url }}'
+
+- name: Healthcheck | Ping every hour at :10
+  ansible.builtin.cron:
+    name: 'Healthcheck - Hourly ping'
+    minute: '10'
+    job: 'curl -fsS -m 10 --retry 5 -o /dev/null {{ healthcheck_webhook_url }}'

@@ -1,0 +1,17 @@
+{
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "files.associations": {
+    "*.tftpl": "yaml"
+  },
+  "[terraform]": {
+    "editor.defaultFormatter": "hashicorp.terraform"
+  },
+  "[yaml]": {
+    "editor.tabSize": 2,
+    "editor.insertSpaces": true,
+    "editor.autoIndent": "full"
+  },
+  "editor.foldingStrategy": "indentation",
+  "files.trimTrailingWhitespace": true,
+  "ansible.python.interpreterPath": "/opt/homebrew/bin/python3"
+}

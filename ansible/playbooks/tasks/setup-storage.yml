@@ -1,0 +1,46 @@
+---
+# ============================================
+# 💾 Storage Configuration
+# ============================================
+# /data 마운트 포인트 및 LVM 설정
+
+# --- /data 디렉토리 생성 ---
+- name: Create /data mount point
+  ansible.builtin.file:
+    path: /data
+    state: directory
+    mode: '0755'
+
+# --- LVM Setup (Home Server only) ---
+- name: LVM Setup (Home Server only)
+  when: cloud_provider == 'home'
+  tags: ['never', 'lvm_setup']
+  block:
+    - name: Create 'data-lv' Logical Volume with specified space
+      community.general.lvol:
+        vg: ubuntu-vg
+        lv: data-lv
+        size: "{{ data_lv_size | default('100%FREE') }}"
+        state: present
+
+    - name: Format 'data-lv' with ext4
+      community.general.filesystem:
+        dev: /dev/mapper/ubuntu--vg-data--lv
+        fstype: ext4
+        state: present
+
+    - name: Mount 'data-lv' to /data and add to fstab
+      ansible.posix.mount:
+        path: /data
+        src: /dev/mapper/ubuntu--vg-data--lv
+        fstype: ext4
+        opts: defaults
+        dump: 0
+        passno: 0
+        state: mounted
+
+- name: Set owner of /data to current user
+  ansible.builtin.file:
+    path: /data
+    state: directory
+    recurse: false

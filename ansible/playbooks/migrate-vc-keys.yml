@@ -1,0 +1,371 @@
+---
+# ============================================
+# 🔄 Validator Client Key Migration Playbook
+# ============================================
+# 이 플레이북은 한 서버에서 다른 서버로 VC 키와 slashing protection DB를 안전하게 마이그레이션합니다.
+#
+# 사용법:
+#   ansible-playbook playbooks/migrate-vc-keys.yml \
+#     -e "source_host=old-vc-host" \
+#     -e "target_host=new-vc-host" \
+#     --vault-password-file .vault_pass.txt
+#
+# 필수 변수 (extra vars):
+#   - source_host: 키를 가져올 소스 호스트
+#   - target_host: 키를 옮길 타겟 호스트
+#
+# 인벤토리에서 자동으로 가져오는 변수:
+#   - network: 인벤토리의 각 호스트에 정의된 network 변수 사용
+#
+# 참고: https://lighthouse-book.sigmaprime.io/validator_slashing_protection.html
+# ============================================
+
+# --- Phase 0: Network Validation ---
+- name: 'Phase 0: Validate Source and Target Network Match'
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags:
+    - always
+  vars:
+    # Default empty values to prevent lint errors - must be provided via -e
+    source_host: '{{ source_host | default("") }}'
+    target_host: '{{ target_host | default("") }}'
+  tasks:
+    - name: '0.0 | Assert required variables are provided'
+      ansible.builtin.assert:
+        that:
+          - source_host | length > 0
+          - target_host | length > 0
+        fail_msg: |
+          ❌ Required variables not provided!
+          Usage: ansible-playbook migrate-vc-keys.yml -e "source_host=HOST" -e "target_host=HOST"
+        success_msg: '✅ Required variables: source_host={{ source_host }}, target_host={{ target_host }}'
+
+    - name: '0.1 | Get network from source host'
+      ansible.builtin.set_fact:
+        source_network: "{{ hostvars[source_host]['network'] }}"
+        target_network: "{{ hostvars[target_host]['network'] }}"
+
+    - name: '0.2 | ✅ Validate networks match'
+      ansible.builtin.assert:
+        that:
+          - source_network == target_network
+        fail_msg: |
+          ❌ Network mismatch detected!
+          Source ({{ source_host }}): {{ source_network }}
+          Target ({{ target_host }}): {{ target_network }}
+          Both hosts must have the same network to migrate keys safely.
+        success_msg: '✅ Network validation passed: {{ source_network }}'
+
+    - name: '0.3 | Set shared network fact'
+      ansible.builtin.set_fact:
+        migration_network: '{{ source_network }}'
+      delegate_facts: true
+
+# --- Phase 1: 소스 호스트에서 VC 중지 및 백업 ---
+- name: 'Phase 1: Stop VC and Export Slashing Protection on Source Host'
+  hosts: '{{ source_host }}'
+  gather_facts: true
+  tags:
+    - phase1
+    - export
+  vars:
+    target_host_name: '{{ source_host }}'
+  vars_files:
+    - vars/vc.yml
+  # Phase 1 specific variables
+  pre_tasks:
+    - name: Set Phase 1 specific variables
+      ansible.builtin.set_fact:
+        export_filename: 'slashing_protection_export_{{ vc_network }}_{{ ansible_date_time.date }}.json'
+  tasks:
+    - name: '1.0 | Check if Phase 1 already executed (vc.bak exists)'
+      ansible.builtin.find:
+        paths: '{{ vc_data_dir | dirname }}'
+        patterns: 'vc.bak.*'
+        file_type: directory
+      register: vc_bak_check
+
+    - name: '1.0a | Skip Phase 1 if already executed'
+      ansible.builtin.debug:
+        msg: '⏭️ Phase 1 already executed - {{ vc_bak_check.files | length }} backup(s) found. Skipping...'
+      when: vc_bak_check.files | length > 0
+
+    - name: '1.1 | ⚠️ 확인: 마이그레이션 시작 전 경고'
+      ansible.builtin.debug:
+        msg:
+          - '=========================================='
+          - '⚠️  VALIDATOR KEY MIGRATION IN PROGRESS'
+          - '=========================================='
+          - 'Source: {{ inventory_hostname }}'
+          - 'Network: {{ vc_network }} ({{ vc_network_type }})'
+          - 'VC Data Dir: {{ vc_data_dir }}'
+          - '=========================================='
+      when: vc_bak_check.files | length == 0
+
+    - name: '1.2 | Stop VC service'
+      ansible.builtin.systemd_service:
+        name: '{{ vc_service_name }}'
+        state: stopped
+      become: true
+      register: vc_stop_result
+      when: vc_bak_check.files | length == 0
+
+    - name: '1.3 | Disable VC service (prevent auto-start)'
+      ansible.builtin.systemd_service:
+        name: '{{ vc_service_name }}'
+        enabled: false
+      become: true
+      when: vc_bak_check.files | length == 0
+
+    - name: '1.4 | Verify VC service is stopped'
+      ansible.builtin.command: 'systemctl is-active {{ vc_service_name }}'
+      register: vc_status
+      failed_when: false
+      changed_when: false
+      when: vc_bak_check.files | length == 0
+
+    - name: '1.4a | Assert VC is stopped'
+      ansible.builtin.assert:
+        that:
+          - vc_status.stdout == 'inactive' or vc_status.rc != 0
+        fail_msg: 'VC service is still running! Cannot proceed with migration.'
+        success_msg: 'VC service is stopped. Safe to proceed.'
+      when: vc_bak_check.files | length == 0
+
+    - name: '1.5 | Create backup directory'
+      ansible.builtin.file:
+        path: '{{ vc_backup_dir }}'
+        state: directory
+        mode: '0755'
+      when: vc_bak_check.files | length == 0
+
+    - name: '1.6 | Export slashing protection database'
+      ansible.builtin.command:
+        cmd: >-
+          {{ vc_lighthouse_bin }} --network {{ vc_network }}
+          account validator slashing-protection export
+          --datadir {{ vc_data_dir }}
+          {{ vc_backup_dir }}/{{ export_filename }}
+        chdir: '{{ vc_user_home }}'
+      environment:
+        HOME: '{{ vc_user_home }}'
+      register: export_result
+      when: vc_bak_check.files | length == 0
+
+    - name: '1.6a | Verify export file exists'
+      ansible.builtin.stat:
+        path: '{{ vc_backup_dir }}/{{ export_filename }}'
+      register: export_file_stat
+      when: vc_bak_check.files | length == 0
+
+    - name: '1.6b | Assert export successful'
+      ansible.builtin.assert:
+        that:
+          - export_file_stat.stat.exists
+        fail_msg: 'Slashing protection export failed! File not created.'
+        success_msg: 'Slashing protection exported successfully.'
+      when: vc_bak_check.files | length == 0
+
+    - name: '1.7 | Rename data directory to .bak (safety backup)'
+      ansible.builtin.command:
+        cmd: 'mv {{ vc_data_dir }} {{ vc_data_dir }}.bak.{{ ansible_date_time.date }}'
+      become: true
+      when: vc_bak_check.files | length == 0
+
+    - name: '1.8 | Fetch slashing protection export to controller'
+      ansible.builtin.fetch:
+        src: '{{ vc_backup_dir }}/{{ export_filename }}'
+        dest: '{{ playbook_dir }}/../.migration/{{ inventory_hostname }}/'
+        flat: true
+      when: vc_bak_check.files | length == 0
+
+    - name: '1.9 | Fetch validator_keys to controller'
+      ansible.posix.synchronize:
+        src: '{{ vc_user_home }}/workspace/validator_keys/'
+        dest: '{{ playbook_dir }}/../.migration/{{ inventory_hostname }}/validator_keys/'
+        mode: pull
+      delegate_to: localhost
+      when: vc_bak_check.files | length == 0
+
+    - name: '1.10 | 📝 Phase 1 완료 메시지'
+      ansible.builtin.debug:
+        msg:
+          - '=========================================='
+          - '✅ Phase 1 Complete on {{ inventory_hostname }}'
+          - '- VC service: STOPPED & DISABLED'
+          - '- Data backed up to: {{ vc_data_dir }}.bak.{{ ansible_date_time.date }}'
+          - '- Slashing protection exported: {{ export_filename }}'
+          - '=========================================='
+
+# --- Phase 2: 타겟 호스트로 키 이동 및 Import ---
+- name: 'Phase 2: Import Keys and Slashing Protection on Target Host'
+  hosts: '{{ target_host }}'
+  gather_facts: true
+  tags:
+    - phase2
+    - import
+  vars:
+    target_host_name: '{{ target_host }}'
+    validator_keys_src: '{{ playbook_dir }}/../.migration/{{ source_host }}/validator_keys'
+  vars_files:
+    - vars/vc.yml
+  pre_tasks:
+    - name: '2.0 | Ensure VC data directory exists on target'
+      ansible.builtin.file:
+        path: '{{ vc_data_dir }}'
+        state: directory
+        owner: '{{ vc_user }}'
+        group: '{{ vc_user }}'
+        mode: '0750'
+      become: true
+
+    - name: '2.0a | Ensure VC import directory exists'
+      ansible.builtin.file:
+        path: '{{ vc_import_dir }}'
+        state: directory
+        mode: '0755'
+  tasks:
+    - name: '2.1 | Check if Phase 2 already executed (slashing file in import_dir)'
+      ansible.builtin.find:
+        paths: '{{ vc_import_dir }}'
+        patterns: 'slashing_protection_export_*.json'
+      register: existing_slashing_files
+
+    - name: '2.1a | Skip Phase 2 if already executed'
+      ansible.builtin.debug:
+        msg: '⏭️ Phase 2 already executed - slashing protection file found in {{ vc_import_dir }}. Skipping...'
+      when: existing_slashing_files.files | length > 0
+
+    - name: '2.2 | Copy slashing protection file to target'
+      ansible.builtin.copy:
+        src: '{{ playbook_dir }}/../.migration/{{ source_host }}/'
+        dest: '{{ vc_import_dir }}/'
+        mode: '0600'
+      when: existing_slashing_files.files | length == 0
+
+    - name: '2.3 | Copy validator_keys to target workspace'
+      ansible.builtin.copy:
+        src: '{{ validator_keys_src }}/'
+        dest: '{{ vc_validator_keys_dir }}/'
+        mode: '0600'
+      ignore_errors: true
+      register: keys_copy_result
+      when: existing_slashing_files.files | length == 0
+
+    - name: '2.4 | Find slashing protection export file'
+      ansible.builtin.find:
+        paths: '{{ vc_import_dir }}'
+        patterns: 'slashing_protection_export_*.json'
+      register: slashing_files
+      when: existing_slashing_files.files | length == 0
+
+    - name: '2.4a | Assert slashing file found'
+      ansible.builtin.assert:
+        that:
+          - slashing_files.files | length > 0
+        fail_msg: 'No slashing protection export file found!'
+      when: existing_slashing_files.files | length == 0
+
+    - name: '2.5 | Check if validator_keys directory exists'
+      ansible.builtin.stat:
+        path: '{{ vc_validator_keys_dir }}'
+      register: validator_keys_stat
+      when: existing_slashing_files.files | length == 0
+
+    - name: '2.5a | Check if password file exists'
+      ansible.builtin.stat:
+        path: '{{ vc_validator_keys_dir }}/password.txt'
+      register: password_file_stat
+      when:
+        - existing_slashing_files.files | length == 0
+        - validator_keys_stat.stat.exists | default(false)
+
+    - name: '2.6 | Import validator keystores'
+      ansible.builtin.command:
+        cmd: >-
+          {{ vc_lighthouse_bin }}
+          --network {{ vc_network }}
+          --datadir {{ vc_data_dir }}
+          account validator import
+          --directory {{ vc_validator_keys_dir }}
+          --password-file {{ vc_validator_keys_dir }}/password.txt
+          --reuse-password
+        chdir: '{{ vc_user_home }}'
+      environment:
+        HOME: '{{ vc_user_home }}'
+      register: keystore_import_result
+      when:
+        - existing_slashing_files.files | length == 0
+        - validator_keys_stat.stat.exists | default(false)
+        - password_file_stat.stat.exists | default(false)
+
+    - name: '2.7 | Import slashing protection database'
+      ansible.builtin.command:
+        cmd: >-
+          {{ vc_lighthouse_bin }}
+          --network {{ vc_network }}
+          --datadir {{ vc_data_dir }}
+          account validator slashing-protection import
+          {{ slashing_files.files[0].path }}
+        chdir: '{{ vc_user_home }}'
+      environment:
+        HOME: '{{ vc_user_home }}'
+      register: import_result
+      when: existing_slashing_files.files | length == 0
+
+    - name: '2.8 | 📝 Phase 2 완료 메시지'
+      ansible.builtin.debug:
+        msg:
+          - '=========================================='
+          - '✅ Phase 2 Complete on {{ inventory_hostname }}'
+          - '- Slashing protection imported successfully'
+          - '=========================================='
+          - ''
+          - '⚠️  MANUAL STEPS REQUIRED:'
+          - '1. Import validator keystores using web UI or CLI'
+          - '2. Verify all keys are imported correctly'
+          - '3. Enable and start VC service manually:'
+          - '   sudo systemctl enable vc'
+          - '   sudo systemctl start vc'
+          - '4. Monitor logs: journalctl -fu vc'
+          - '=========================================='
+# --- Phase 3: 로컬 마이그레이션 파일 정리 ---
+- name: 'Phase 3: Cleanup Migration Files on Controller'
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags:
+    - phase3
+    - cleanup
+  vars:
+    migration_dir: '{{ playbook_dir }}/../.migration/{{ source_host }}'
+  tasks:
+    - name: '3.0 | Check if migration directory exists'
+      ansible.builtin.stat:
+        path: '{{ migration_dir }}'
+      register: migration_dir_stat
+
+    - name: '3.1 | Remove migration directory'
+      ansible.builtin.file:
+        path: '{{ migration_dir }}'
+        state: absent
+      when: migration_dir_stat.stat.exists
+
+    - name: '3.2 | 📝 Phase 3 완료 메시지'
+      ansible.builtin.debug:
+        msg:
+          - '=========================================='
+          - '✅ Phase 3 Complete: Cleanup Done'
+          - '- Removed: {{ migration_dir }}'
+          - '=========================================='
+          - ''
+          - '🎉 MIGRATION COMPLETE!'
+          - '=========================================='
+      when: migration_dir_stat.stat.exists
+
+    - name: '3.2a | Skip message if already cleaned'
+      ansible.builtin.debug:
+        msg: '⏭️ Phase 3 already executed - migration directory not found. Skipping...'
+      when: not migration_dir_stat.stat.exists

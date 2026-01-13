@@ -1,0 +1,43 @@
+---
+# ============================================
+# 🐳 Docker Installation
+# ============================================
+# Docker Engine 및 Docker Compose 설치
+
+- name: Install Docker
+  ansible.builtin.shell: |
+    curl -fsSL https://get.docker.com | sh
+  args:
+    creates: /usr/bin/docker
+
+- name: Create directory for Docker Compose plugin
+  ansible.builtin.file:
+    path: '{{ docker_compose_plugin_dir }}'
+    state: directory
+    mode: '0755'
+
+- name: Install Docker Compose plugin (system-wide)
+  ansible.builtin.get_url:
+    url: '{{ docker_compose_url }}'
+    dest: '{{ docker_compose_plugin_dir }}/docker-compose'
+    mode: '0755'
+
+- name: Detect original login user
+  ansible.builtin.shell: echo $SUDO_USER
+  register: sudo_user_result
+  changed_when: false
+  failed_when: false
+
+- name: Set docker_user based on sudo or ansible_user
+  ansible.builtin.set_fact:
+    docker_user: '{{ sudo_user_result.stdout | default(ansible_user, true) }}'
+
+- name: Debug docker_user
+  ansible.builtin.debug:
+    msg: 'User to be added to docker group: {{ docker_user }}'
+
+- name: Add user to docker group
+  ansible.builtin.user:
+    name: '{{ docker_user }}'
+    groups: docker
+    append: true

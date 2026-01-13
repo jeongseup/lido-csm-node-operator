@@ -1,0 +1,144 @@
+---
+# ============================================
+# 🖥️ Setup Ubuntu 24.04 Base Server
+# ============================================
+# Ethereum Validator Node 운영을 위한 기본 서버 설정
+#
+# 포함 구성:
+#   1. 📦 Packages - 기본 패키지 설치
+#   2. 🔒 Security - SSH, UFW, Fail2Ban, 자동 업데이트
+#   3. ⚡ Tuning - 커널/네트워크/스토리지 최적화
+#   4. 💾 Storage - /data 마운트, LVM 설정
+#   5. 👤 Users - 이더리움 서비스 계정 생성
+#   6. 🐳 Docker - Docker Engine 및 Compose 설치
+#   7. ⏰ Chrony - 시간 동기화
+#   8. 🖥️ Shell - 에디터 및 프롬프트 설정
+#   9. 🏥 Healthcheck - 서버 상태 모니터링
+#
+# 사용법:
+#   make ap-setup-servers
+#   # 또는 LVM 설정 포함
+#   make ap-setup-servers ARGS="--tags lvm_setup"
+# ============================================
+
+- name: Setup Ubuntu 24.04 Base Server (Validator Optimized)
+  hosts: home_servers
+  become: true
+  vars_files:
+    - vars/secrets.yml
+  vars:
+    # --- Network Selection ---
+    _enabled_networks: "{{ enabled_networks | default(['mainnet']) }}"
+    admin_user_ssh_key: "{{ lookup('file', admin_user_ssh_key_path | default('~/.ssh/id_rsa.pub')) }}"
+
+    # --- Docker ---
+    docker_compose_plugin_dir: /usr/local/lib/docker/cli-plugins
+    docker_compose_url: 'https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64'
+
+    # --- Swap (geerlingguy.swap role) ---
+    swap_file_size_mb: 8192
+    swap_file_path: /swap.img
+    swap_swappiness: 10
+
+  # ============================================
+  # Pre-Tasks: 호스트 정보 수집
+  # ============================================
+  pre_tasks:
+    - name: Group hosts by cloud provider
+      ansible.builtin.group_by:
+        key: "group_{{ cloud_provider | default('local') }}"
+      changed_when: false
+
+    - name: Show host configuration
+      ansible.builtin.debug:
+        msg:
+          - 'cloud_provider: {{ cloud_provider }}'
+          - 'host_type: {{ host_type }}'
+          - 'enabled_networks: {{ _enabled_networks }}'
+
+  # ============================================
+  # Tasks: 모듈화된 태스크 파일 include
+  # ============================================
+  tasks:
+    # --- 1. 📦 Packages ---
+    - name: '📦 Install Base Packages'
+      ansible.builtin.include_tasks:
+        file: tasks/setup-packages.yml
+      tags: packages
+
+    # --- 2. 🔒 Security ---
+    - name: '🔒 Configure Security (SSH, UFW, Fail2Ban)'
+      ansible.builtin.include_tasks:
+        file: tasks/setup-security.yml
+      tags: security
+
+    # --- 3. ⚡ Tuning ---
+    - name: '⚡ Apply System Performance Tuning'
+      ansible.builtin.include_tasks:
+        file: tasks/setup-tuning.yml
+      tags: tuning
+
+    # --- 3.5. Swap Role ---
+    - name: '💾 Run swap role (if not VC)'
+      ansible.builtin.include_role:
+        name: geerlingguy.swap
+      when: host_type != 'vc'
+      tags: swap
+
+    # --- 4. 💾 Storage ---
+    - name: '💾 Configure Storage (/data, LVM)'
+      ansible.builtin.include_tasks:
+        file: tasks/setup-storage.yml
+      tags: storage
+
+    # --- 5. 👤 Users ---
+    - name: '👤 Create Ethereum Service Users'
+      ansible.builtin.include_tasks:
+        file: tasks/create-eth-users.yml
+      loop: '{{ _enabled_networks }}'
+      loop_control:
+        loop_var: network_item
+      tags: users
+
+    # --- 6. 🐳 Docker ---
+    - name: '🐳 Setup Docker and Docker Compose'
+      ansible.builtin.include_tasks:
+        file: tasks/setup-docker.yml
+      when: host_type != 'vc'
+      tags: docker
+
+    # --- 7. ⏰ Chrony ---
+    - name: '⏰ Configure Time Synchronization (Chrony)'
+      ansible.builtin.include_tasks:
+        file: tasks/setup-chrony.yml
+      tags: chrony
+
+    # --- 8. 🖥️ Shell ---
+    - name: '🖥️ Configure Shell (vim, prompt)'
+      ansible.builtin.include_tasks:
+        file: tasks/setup-shell.yml
+      tags: shell
+
+    # --- 9. 🏥 Healthcheck ---
+    - name: '🏥 Configure Healthcheck Cron Jobs'
+      ansible.builtin.include_tasks:
+        file: tasks/setup-healthcheck.yml
+      when: healthcheck_webhook_url is defined
+      tags: healthcheck
+
+  # ============================================
+  # Handlers
+  # ============================================
+  handlers:
+    - name: Restart sshd
+      ansible.builtin.systemd_service:
+        name: sshd
+        state: restarted
+
+    - name: Restart fail2ban
+      ansible.builtin.systemd_service:
+        name: fail2ban
+        state: restarted
+
+    - name: Update grub
+      ansible.builtin.command: update-grub
