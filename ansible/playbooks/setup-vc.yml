@@ -71,36 +71,46 @@
             unset env_file_to_source
           fi
 
-    # --- 2. Lighthouse 바이너리 다운로드 및 설치 ---
-    - name: Find latest Lighthouse release URL
+    # --- 2. Lighthouse 바이너리 다운로드 및 설치 (버전 고정) ---
+    - name: Find Lighthouse release URL for pinned version
       ansible.builtin.uri:
-        url: 'https://api.github.com/repos/sigp/lighthouse/releases/latest'
+        url: 'https://api.github.com/repos/sigp/lighthouse/releases/tags/v{{ cl_version }}'
         return_content: true
       register: lighthouse_release_info
 
-    - name: Set binaries_url fact (linux-x64.zip)
+    - name: Set Lighthouse binary facts
       ansible.builtin.set_fact:
+        vc_version_dir: '/home/{{ eth_vc_user }}/workspace/bin/lighthouse-{{ cl_version }}'
         vc_binary_url: "{{
           lighthouse_release_info.json.assets |
           selectattr('name', 'contains', 'x86_64-unknown-linux-gnu.tar.gz') |
           map(attribute='browser_download_url') |
           first }}"
 
-    - name: Set version fact
-      ansible.builtin.set_fact:
-        vc_version: '{{ lighthouse_release_info.json.tag_name }}'
-
     - name: Debug Show Lighthouse download URL
       ansible.builtin.debug:
-        msg: 'Downloading Lighthouse from: {{ vc_binary_url }} (for version {{ vc_version }})'
+        msg: 'Downloading Lighthouse v{{ cl_version }} from: {{ vc_binary_url }}'
+
+    - name: Ensure Lighthouse version directory exists
+      ansible.builtin.file:
+        path: '{{ vc_version_dir }}'
+        state: directory
+        mode: '0755'
 
     - name: Download and extract Lighthouse
       ansible.builtin.unarchive:
         src: '{{ vc_binary_url }}'
-        dest: '/home/{{ eth_vc_user }}/workspace/bin/lighthouse'
+        dest: '{{ vc_version_dir }}'
         remote_src: true
         mode: '0755'
-        creates: '/home/{{ eth_vc_user }}/workspace/bin/lighthouse/lighthouse-{{ vc_version }}'
+        creates: '{{ vc_version_dir }}/lighthouse'
+
+    - name: Symlink Lighthouse current version
+      ansible.builtin.file:
+        src: '{{ vc_version_dir }}'
+        dest: '/home/{{ eth_vc_user }}/workspace/bin/lighthouse'
+        state: link
+        force: true
 
     - name: Create Validator Client systemd service file
       vars:
